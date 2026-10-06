@@ -30,6 +30,13 @@ textarea{min-height:80px;resize:vertical}
 small{color:#6b7280}
 pre{white-space:pre-wrap;background:#111827;color:#e5e7eb;padding:14px;border-radius:8px;overflow:auto}
 @media(max-width:700px){.grid{grid-template-columns:1fr}}
+.library{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.asset{border:1px solid #e5e7eb;border-radius:10px;padding:10px;background:#fff}
+.asset-preview{height:110px;display:flex;align-items:center;justify-content:center;background:#f9fafb;border-radius:7px;margin-bottom:8px}
+.asset-preview img{max-width:100%;max-height:100px}
+.asset-path{font-size:12px;word-break:break-all;color:#4b5563;margin:6px 0}
+.asset-actions{display:flex;gap:5px;flex-wrap:wrap}
+.asset-actions button{padding:7px 9px;font-size:12px}
 </style>
 </head>
 <body>
@@ -45,6 +52,17 @@ pre{white-space:pre-wrap;background:#111827;color:#e5e7eb;padding:14px;border-ra
     </div>
     <div id="folder" class="status">フォルダ未選択</div>
     <small>保存するにはフォルダへの書き込み許可が必要です。</small>
+  </div>
+
+  <div id="libraryCard" class="card" hidden>
+    <h2>画像素材</h2>
+    <p><small>選択したゲームフォルダ内の画像を一覧表示します。追加した画像は <code>images/</code> に保存します。</small></p>
+    <div class="actions">
+      <button id="addImage">画像を追加</button>
+      <button id="refreshImages" class="secondary">画像一覧を更新</button>
+    </div>
+    <input id="imageUpload" type="file" accept="image/*" multiple hidden>
+    <div id="library" class="library" style="margin-top:14px"></div>
   </div>
 
   <div id="editor" class="card" hidden>
@@ -117,6 +135,8 @@ async function loadGame(){
     validateGame();
     renderEditor();
     renderGame();
+    $("libraryCard").hidden=false;
+    await refreshImageLibrary();
     $("editor").hidden=false;
     $("game").hidden=false;
     $("reload").disabled=false;
@@ -155,9 +175,9 @@ function renderEditor(){
       <div class="preview"><img id="preview-${key}" alt=""></div>
       <label>表示名</label>
       <input type="text" id="name-${key}">
-      <label>画像パス</label>
-      <input type="text" id="image-${key}">
-      <button type="button" class="secondary" id="imageBtn-${key}">画像を選んで差し替え</button>
+      <label>画像</label>
+      <input type="text" id="image-${key}" readonly>
+      <button type="button" class="secondary" id="imageBtn-${key}">画像素材から選択</button>
       <label>勝てる相手</label>
       <select id="beats-${key}" style="width:100%;padding:10px;border:1px solid #d1d5db;border-radius:8px;font:inherit">
         <option value="rock">グー</option>
@@ -176,17 +196,115 @@ function renderEditor(){
     $(`image-${key}`).oninput=()=>{gameData.hands[key].image=$(`image-${key}`).value; updatePreview()};
     $(`beats-${key}`).onchange=()=>{gameData.hands[key].beats=$(`beats-${key}`).value; updatePreview()};
 
-    $(`imageBtn-${key}`).onclick=()=>$(`file-${key}`).click();
-    $(`file-${key}`).onchange=async e=>{
-      const file=e.target.files[0];
-      if(!file)return;
-      try{
-        await replaceImage(key,file);
-      }catch(err){showError(err)}
+    $(`imageBtn-${key}`).onclick=()=>{
+      $("libraryCard").scrollIntoView({behavior:"smooth",block:"start"});
+      setStatus(`${names[key]}に使う画像の「この画像を使用」を押してください。`,"success");
     };
   }
   updatePreview();
 }
+
+
+const imageExtensions=["png","jpg","jpeg","gif","webp","svg","bmp","avif"];
+
+async function scanImages(handle,path=""){
+  const result=[];
+  for await(const [name,entry] of handle.entries()){
+    const p=path?path+"/"+name:name;
+    if(entry.kind==="file"){
+      const ext=name.toLowerCase().split(".").pop();
+      if(imageExtensions.includes(ext)) result.push({handle:entry,path:p,name});
+    }else if(entry.kind==="directory"){
+      result.push(...await scanImages(entry,p));
+    }
+  }
+  return result;
+}
+
+async function refreshImageLibrary(){
+  if(!dir)return;
+  try{
+    const assets=await scanImages(dir);
+    const lib=$("library");
+    lib.innerHTML="";
+    if(!assets.length){
+      lib.innerHTML="<p><small>画像がありません。</small></p>";
+      return;
+    }
+    for(const asset of assets){
+      const card=document.createElement("div");
+      card.className="asset";
+      const preview=document.createElement("div");
+      preview.className="asset-preview";
+      const img=document.createElement("img");
+      img.alt=asset.name;
+      try{ img.src=URL.createObjectURL(await asset.handle.getFile()); }catch(e){}
+      preview.appendChild(img);
+
+      const path=document.createElement("div");
+      path.className="asset-path";
+      path.textContent=asset.path;
+
+      const actions=document.createElement("div");
+      actions.className="asset-actions";
+
+      for(const key of handKeys){
+        const b=document.createElement("button");
+        b.className="secondary";
+        b.textContent=`${gameData.hands[key].name}に使用`;
+        b.onclick=()=>assignImage(key,asset.path);
+        actions.appendChild(b);
+      }
+
+      const del=document.createElement("button");
+      del.textContent="削除";
+      del.style.background="#dc2626";
+      del.onclick=async()=>{
+        if(!confirm(`「${asset.path}」を削除しますか？`))return;
+        try{
+          const refs=handKeys.filter(k=>gameData.hands[k].image===asset.path);
+          if(refs.length && !confirm(`現在 ${refs.map(k=>gameData.hands[k].name).join("・")} で使用中です。それでも削除しますか？`)) return;
+          await asset.handle.remove();
+          await refreshImageLibrary();
+          setStatus(`${asset.path} を削除しました。`,"success");
+        }catch(e){showError(e)}
+      };
+      actions.appendChild(del);
+
+      card.append(preview,path,actions);
+      lib.appendChild(card);
+    }
+  }catch(e){showError(e)}
+}
+
+function assignImage(key,path){
+  gameData.hands[key].image=path;
+  $(`image-${key}`).value=path;
+  updatePreview();
+  renderGame();
+  setStatus(`${gameData.hands[key].name} の画像を変更しました。game.jsonを保存すると確定します。`,"success");
+}
+
+$("addImage").onclick=()=>$("imageUpload").click();
+
+$("imageUpload").onchange=async e=>{
+  const files=[...e.target.files];
+  if(!files.length)return;
+  try{
+    const imagesDir=await dir.getDirectoryHandle("images",{create:true});
+    for(const file of files){
+      const fh=await imagesDir.getFileHandle(file.name,{create:true});
+      const w=await fh.createWritable();
+      await w.write(file);
+      await w.close();
+    }
+    e.target.value="";
+    await refreshImageLibrary();
+    setStatus(`${files.length}個の画像を追加しました。`,"success");
+  }catch(err){showError(err)}
+};
+
+$("refreshImages").onclick=refreshImageLibrary;
 
 async function replaceImage(key,file){
   const oldPath=gameData.hands[key].image;
