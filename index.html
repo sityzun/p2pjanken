@@ -72,11 +72,17 @@ function logInfo(s){
 
 async function findFile(root,path){
   const parts=path.split("/").filter(Boolean);
-  let h=root;
-  for(const part of parts){
-    h=await h.getFileHandle(part);
+  if(!parts.length) throw Error("ファイルパスが空です");
+
+  let dirHandle=root;
+
+  // 最後の要素だけがファイル。
+  // 途中の要素（例: images）はディレクトリとして取得する。
+  for(let i=0;i<parts.length-1;i++){
+    dirHandle=await dirHandle.getDirectoryHandle(parts[i]);
   }
-  return h;
+
+  return await dirHandle.getFileHandle(parts[parts.length-1]);
 }
 
 async function readJson(root){
@@ -86,11 +92,17 @@ async function readJson(root){
 }
 
 async function loadImage(root,path,img){
-  const h=await findFile(root,path);
-  const f=await h.getFile();
-  const u=URL.createObjectURL(f);
-  urls.push(u);
-  img.src=u;
+  if(!path) throw Error("画像ファイルのパスが設定されていません");
+
+  try{
+    const h=await findFile(root,path);
+    const f=await h.getFile();
+    const u=URL.createObjectURL(f);
+    urls.push(u);
+    img.src=u;
+  }catch(e){
+    throw Error(`画像を読み込めません: ${path} / ${e.message}`);
+  }
 }
 
 async function loadGame(){
