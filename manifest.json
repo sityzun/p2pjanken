@@ -1,6 +1,6 @@
 {
-  "name": "WebRTC P2P Test",
-  "short_name": "P2P Test",
+  "name": "ローカルゲームPWA",
+  "short_name": "Local Game",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#101827",

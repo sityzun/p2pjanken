@@ -3,310 +3,163 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>WebRTC P2P 接続テスト</title>
+<link rel="manifest" href="./manifest.json">
+<title>ローカルゲームPWA</title>
 <style>
-body{font-family:system-ui,sans-serif;background:#101827;color:#fff;margin:0}
+*{box-sizing:border-box}
+body{margin:0;background:#101827;color:#fff;font-family:system-ui,sans-serif}
 main{max-width:760px;margin:auto;padding:16px}
-.card{background:#182235;border-radius:14px;padding:16px;margin:12px 0}
-button{padding:12px 16px;margin:4px;border:0;border-radius:9px;background:#2563eb;color:#fff;font-weight:bold}
+.card{background:#182235;border:1px solid #293852;border-radius:16px;padding:18px;margin:12px 0}
+h1{margin:0 0 5px;font-size:25px}
+h2{font-size:19px}
+.muted{color:#aeb9cb;font-size:14px}
+button{padding:12px 17px;border:0;border-radius:10px;background:#2563eb;color:#fff;font-weight:bold;margin:4px}
 button:disabled{opacity:.4}
-textarea{width:100%;box-sizing:border-box;min-height:150px;background:#0b1220;color:#fff;border:1px solid #40506b;border-radius:8px;padding:10px}
-#state{font-size:20px;font-weight:bold;padding:14px;background:#0b1220;border-radius:10px}
-#log{font-family:monospace;white-space:pre-wrap;background:#080d16;padding:12px;border-radius:10px;min-height:180px;font-size:12px;overflow:auto}
-.ok{color:#4ade80}.ng{color:#fb7185}
+.status{padding:12px;background:#0b1220;border-radius:10px;margin:10px 0}
+#gameTitle{text-align:center;font-size:28px;margin:5px}
+#result{text-align:center;font-size:24px;font-weight:bold;min-height:40px;margin:16px}
+.hands{display:flex;justify-content:center;gap:10px}
+.hand{background:#0b1220;border:1px solid #35445f;border-radius:14px;width:30%;padding:10px;text-align:center}
+.hand img{width:100%;aspect-ratio:1;object-fit:contain;border-radius:10px;display:block}
+.hand button{width:100%;margin:6px 0 0}
+#score{text-align:center;font-size:20px}
+pre{background:#080d16;padding:12px;border-radius:10px;white-space:pre-wrap;font-size:12px}
 </style>
 </head>
 <body>
 <main>
-<h1>WebRTC P2P 接続テスト</h1>
-<p>これはじゃんけん等を全部外した「接続だけ」のテストです。</p>
-
 <div class="card">
-<h2>接続状態</h2>
-<div id="state">未開始</div>
+<h1>🎮 ローカルゲームPWA</h1>
+<div class="muted">ゲーム本体はGitHub Pages、ゲームデータはスマホ/PCのローカルフォルダから読み込みます。</div>
+<button id="choose">ゲームフォルダを選択</button>
+<div id="folder" class="status">フォルダ未選択</div>
 </div>
 
 <div class="card">
-<h2>A側：Offerを作る</h2>
-<button id="offer">Offerを作成</button>
-<p>作成された内容をB側へLINE等で送る。</p>
-<textarea id="offerText" placeholder="Offer"></textarea>
+<div id="gameTitle">ゲーム未読み込み</div>
+<div id="gameDesc" class="muted" style="text-align:center"></div>
+<div id="gameArea">
+<div id="result">ゲームフォルダを選択してください</div>
+<div id="score">あなた 0　-　0 CPU</div>
+<div class="hands">
+<div class="hand"><img id="rockImg" alt="グー"><button data-hand="rock" disabled>✊ グー</button></div>
+<div class="hand"><img id="paperImg" alt="パー"><button data-hand="paper" disabled>✋ パー</button></div>
+<div class="hand"><img id="scissorsImg" alt="チョキ"><button data-hand="scissors" disabled>✌️ チョキ</button></div>
+</div>
+<br>
+<div style="text-align:center"><button id="reset" class="secondary">スコアリセット</button></div>
+</div>
 </div>
 
 <div class="card">
-<h2>B側：Offerを読み込む</h2>
-<textarea id="remoteOffer" placeholder="Aから受け取ったOfferを貼る"></textarea>
-<button id="answer">Offerを読み込んでAnswerを作る</button>
-<textarea id="answerText" placeholder="Answer"></textarea>
-<p>作成されたAnswerをA側へ送る。</p>
-</div>
-
-<div class="card">
-<h2>A側：Answerを読み込む</h2>
-<textarea id="remoteAnswer" placeholder="Bから受け取ったAnswerを貼る"></textarea>
-<button id="setAnswer">Answerを設定</button>
-</div>
-
-<div class="card">
-<h2>テスト</h2>
-<button id="ping" disabled>Ping送信</button>
-<div id="message">DataChannel未接続</div>
-</div>
-
-<div class="card">
-<h2>診断ログ</h2>
-<div id="log"></div>
+<h2>読み込んだゲームデータ</h2>
+<pre id="info">まだありません</pre>
 </div>
 </main>
 
 <script>
 "use strict";
 
-let pc=null;
-let dc=null;
-let role="";
-let timer=null;
+let dir=null, game=null;
+let myScore=0,cpuScore=0;
+let urls=[];
 
 const $=id=>document.getElementById(id);
 
-function log(s){
-  const t=new Date().toLocaleTimeString();
-  $("log").textContent += "["+t+"] "+s+"\\n";
-  $("log").scrollTop=$("log").scrollHeight;
+function logInfo(s){
+  $("info").textContent=s;
 }
 
-function state(s,cls=""){
-  $("state").textContent=s;
-  $("state").className=cls;
-}
-
-function makePC(isOfferer){
-  if(pc){
-    try{pc.close()}catch(e){}
+async function findFile(root,path){
+  const parts=path.split("/").filter(Boolean);
+  let h=root;
+  for(const part of parts){
+    h=await h.getFileHandle(part);
   }
+  return h;
+}
 
-  role=isOfferer?"A":"B";
+async function readJson(root){
+  const h=await root.getFileHandle("game.json");
+  const f=await h.getFile();
+  return JSON.parse(await f.text());
+}
 
-  pc=new RTCPeerConnection({
-    iceServers:[
-      {urls:"stun:stun.l.google.com:19302"},
-      {urls:"stun:stun1.l.google.com:19302"}
-    ]
-  });
+async function loadImage(root,path,img){
+  const h=await findFile(root,path);
+  const f=await h.getFile();
+  const u=URL.createObjectURL(f);
+  urls.push(u);
+  img.src=u;
+}
 
-  log("RTCPeerConnection 作成");
-  log("STUN: stun.l.google.com:19302");
+async function loadGame(){
+  urls.forEach(URL.revokeObjectURL);
+  urls=[];
 
-  pc.onicegatheringstatechange=()=>{
-    log("ICE gathering = "+pc.iceGatheringState);
-  };
+  game=await readJson(dir);
 
-  pc.oniceconnectionstatechange=()=>{
-    log("ICE connection = "+pc.iceConnectionState);
+  if(!game.title) throw Error("game.jsonにtitleがありません");
+  if(!game.hands) throw Error("game.jsonにhandsがありません");
 
-    if(pc.iceConnectionState==="checking"){
-      state("P2P接続確認中…");
+  $("gameTitle").textContent=game.title;
+  $("gameDesc").textContent=game.description||"";
+
+  await loadImage(dir,game.hands.rock.image,$("rockImg"));
+  await loadImage(dir,game.hands.paper.image,$("paperImg"));
+  await loadImage(dir,game.hands.scissors.image,$("scissorsImg"));
+
+  document.querySelectorAll(".hand button").forEach(b=>b.disabled=false);
+
+  logInfo(JSON.stringify(game,null,2));
+  $("folder").textContent=`読み込み成功：${dir.name}`;
+  $("result").textContent="手を選んでください";
+}
+
+$("choose").onclick=async()=>{
+  try{
+    if(!window.showDirectoryPicker){
+      throw Error("このブラウザはFile System Access APIに対応していません");
     }
 
-    if(pc.iceConnectionState==="connected" ||
-       pc.iceConnectionState==="completed"){
-      state("P2P接続成功！","ok");
-    }
+    dir=await showDirectoryPicker({mode:"read",id:"janken-game"});
+    await loadGame();
+  }catch(e){
+    if(e.name==="AbortError")return;
+    $("folder").textContent="読み込み失敗: "+e.message;
+    console.error(e);
+  }
+};
 
-    if(pc.iceConnectionState==="failed"){
-      state("WebRTC: failed","ng");
-      log("★★ ICE FAILED ★★");
-    }
+document.querySelectorAll(".hand button").forEach(b=>{
+  b.onclick=()=>{
+    const me=b.dataset.hand;
+    const list=["rock","paper","scissors"];
+    const cpu=list[Math.floor(Math.random()*3)];
 
-    if(pc.iceConnectionState==="disconnected"){
-      state("P2P一時切断","ng");
-    }
-  };
-
-  pc.onconnectionstatechange=()=>{
-    log("PeerConnection = "+pc.connectionState);
-  };
-
-  pc.onsignalingstatechange=()=>{
-    log("signaling = "+pc.signalingState);
-  };
-
-  pc.onicecandidate=e=>{
-    if(e.candidate){
-      log("ICE candidate取得: "+e.candidate.candidate);
+    if(me===cpu){
+      $("result").textContent=`あいこ！ ${game.hands[me].name} vs ${game.hands[cpu].name}`;
+    }else if(game.hands[me].beats===cpu){
+      myScore++;
+      $("result").textContent=`勝ち！ ${game.hands[me].name} vs ${game.hands[cpu].name}`;
     }else{
-      log("★★ ICE candidate収集完了 ★★");
-    }
-  };
-
-  if(isOfferer){
-    dc=pc.createDataChannel("test");
-    setupDataChannel();
-  }else{
-    pc.ondatachannel=e=>{
-      log("DataChannel受信");
-      dc=e.channel;
-      setupDataChannel();
-    };
-  }
-}
-
-function setupDataChannel(){
-  dc.onopen=()=>{
-    log("★★ DataChannel OPEN ★★");
-    state("P2P接続成功！","ok");
-    $("ping").disabled=false;
-    $("message").textContent="DataChannel接続成功";
-  };
-
-  dc.onclose=()=>{
-    log("DataChannel CLOSED");
-    $("ping").disabled=true;
-  };
-
-  dc.onerror=e=>{
-    log("DataChannel ERROR");
-  };
-
-  dc.onmessage=e=>{
-    log("受信: "+e.data);
-    $("message").textContent="受信: "+e.data;
-  };
-}
-
-async function waitIce(){
-  if(pc.iceGatheringState==="complete") return;
-
-  log("ICE candidate収集中…");
-
-  await new Promise(resolve=>{
-    const start=Date.now();
-
-    const check=()=>{
-      if(pc.iceGatheringState==="complete"){
-        resolve();
-        return;
-      }
-
-      if(Date.now()-start>20000){
-        log("ICE収集20秒タイムアウト");
-        resolve();
-        return;
-      }
-
-      setTimeout(check,100);
-    };
-
-    check();
-  });
-}
-
-$("offer").onclick=async()=>{
-  try{
-    $("log").textContent="";
-    makePC(true);
-    state("Offer作成中…");
-
-    log("A: createOffer()");
-    const offer=await pc.createOffer();
-
-    log("A: setLocalDescription()");
-    await pc.setLocalDescription(offer);
-
-    await waitIce();
-
-    const result=JSON.stringify(pc.localDescription);
-
-    $("offerText").value=result;
-
-    log("★★ Offer完成 ★★");
-    log("Offer JSONをBへ送ってください");
-    state("Offer完成。Bへ送信してください");
-  }catch(e){
-    state("Offer作成失敗","ng");
-    log("ERROR: "+e.message);
-    console.error(e);
-  }
-};
-
-$("answer").onclick=async()=>{
-  try{
-    const raw=$("remoteOffer").value.trim();
-    if(!raw)throw Error("Offerが空です");
-
-    const offer=JSON.parse(raw);
-
-    if(offer.type!=="offer"){
-      throw Error("type=offerではありません");
+      cpuScore++;
+      $("result").textContent=`負け… ${game.hands[me].name} vs ${game.hands[cpu].name}`;
     }
 
-    makePC(false);
+    $("score").textContent=`あなた ${myScore}　-　${cpuScore} CPU`;
+  };
+});
 
-    log("B: setRemoteDescription(Offer)");
-    await pc.setRemoteDescription(offer);
-
-    log("B: createAnswer()");
-    const answer=await pc.createAnswer();
-
-    log("B: setLocalDescription(Answer)");
-    await pc.setLocalDescription(answer);
-
-    await waitIce();
-
-    $("answerText").value=JSON.stringify(pc.localDescription);
-
-    log("★★ Answer完成 ★★");
-    log("Answer JSONをAへ送ってください");
-    state("Answer完成。Aへ送信してください");
-  }catch(e){
-    state("Answer作成失敗","ng");
-    log("ERROR: "+e.message);
-    console.error(e);
-  }
+$("reset").onclick=()=>{
+  myScore=cpuScore=0;
+  $("score").textContent="あなた 0　-　0 CPU";
+  $("result").textContent=game?"手を選んでください":"ゲームフォルダを選択してください";
 };
 
-$("setAnswer").onclick=async()=>{
-  try{
-    if(!pc)throw Error("A側で先にOfferを作ってください");
-
-    const raw=$("remoteAnswer").value.trim();
-    if(!raw)throw Error("Answerが空です");
-
-    const answer=JSON.parse(raw);
-
-    if(answer.type!=="answer"){
-      throw Error("type=answerではありません");
-    }
-
-    log("A: setRemoteDescription(Answer)");
-    await pc.setRemoteDescription(answer);
-
-    log("★★ Answer設定完了 ★★");
-    state("P2P接続中…");
-
-    // 状態が変わるまで少し待つ
-    clearTimeout(timer);
-    timer=setTimeout(()=>{
-      log("現在のICE状態: "+pc.iceConnectionState);
-      log("現在のPeer状態: "+pc.connectionState);
-    },3000);
-
-  }catch(e){
-    state("Answer設定失敗","ng");
-    log("ERROR: "+e.message);
-  }
-};
-
-$("ping").onclick=()=>{
-  if(dc && dc.readyState==="open"){
-    const text="PING "+new Date().toLocaleTimeString();
-    dc.send(text);
-    log("送信: "+text);
-  }
-};
-
-log("ページ読み込み完了");
-log("この版ではゲーム・ファイル転送を行いません");
+if("serviceWorker" in navigator){
+  navigator.serviceWorker.register("./sw.js").catch(console.error);
+}
 </script>
 </body>
 </html>
