@@ -1,8 +1,9 @@
 {
-  "name": "ローカルゲームPWA",
-  "short_name": "Local Game",
-  "start_url": "./",
-  "display": "standalone",
-  "background_color": "#101827",
-  "theme_color": "#2563eb"
+  "name":"ローカルじゃんけんゲーム エディター",
+  "short_name":"じゃんけんエディター",
+  "start_url":"./",
+  "display":"standalone",
+  "background_color":"#f3f4f6",
+  "theme_color":"#111827",
+  "icons":[]
 }
