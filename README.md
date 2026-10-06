@@ -1,28 +1,61 @@
-# P2Pじゃんけん PWA
+# P2Pじゃんけん v2.1
 
-## 構成
-- PWA: HTML/CSS/JavaScript
-- ローカル大容量データ: File System Access API
-- P2P通信: WebRTC RTCDataChannel
-- シグナリング: Offer/Answerを手動コピーしてLINE等で交換
-- サーバー側DB: なし
+GitHub Pages + スマホ2台 + LINE等でOffer/Answerを手動交換して接続する診断版です。
 
-## 起動
-PWA / Service Worker / File System Access API は安全なコンテキスト(HTTPS)が必要です。
-GitHub Pages / Cloudflare Pages等のHTTPS静的ホスティングで配信してください。
+## 今回の修正
 
-## 接続
-1. Aで「Offerを作る」
-2. 表示されたJSONをLINE等でBへ送る
-3. BでJSONを貼って「B: Offerを読み込む」
-4. Bに生成されたAnswer JSONをAへ送る
-5. AでAnswerを貼って「A: Answerを読み込む」
-6. 接続後、じゃんけん開始
+- Google / Cloudflare のSTUNサーバーを追加
+- Offer/Answerを作る前にICE候補を収集
+- ICE gathering / ICE connection / Peer connection / DataChannelの状態を画面表示
+- Offer/Answerの種類をチェック
+- 接続失敗時に原因の手掛かりを診断欄へ表示
+- DataChannel接続後に `hello` を送って相互接続を確認
+- v2のじゃんけん・フォルダ選択・ファイル転送機能は維持
 
-## ローカルフォルダ
-「フォルダを選択」で、ユーザーが明示的に選んだゲームデータフォルダを読み取ります。
-ブラウザは端末内の任意フォルダを勝手には読みません。
+## GitHub Pages
 
-## 注意
-この試作は `iceServers: []` なので、NAT越えが必要なインターネット環境では接続できない場合があります。
-STUN/TURNを使えば接続成功率を上げられますが、その場合は外部サーバーを利用します。
+1. ZIPを展開
+2. 中身の `index.html`, `manifest.json`, `sw.js`, `README.md` をGitHubリポジトリのルートへ置く
+3. GitHubの Settings → Pages
+4. Deploy from a branch
+5. Branch: `main` / Folder: `/ (root)`
+6. 発行された `https://ユーザー名.github.io/リポジトリ名/` をスマホ2台で開く
+
+## 接続手順
+
+### A側
+1. 「A: Offer作成」
+2. JSONを全部コピーしてBへLINE等で送る
+
+### B側
+1. Aから受け取ったJSONを貼る
+2. 「B: Offer読み込み」
+3. 表示されたAnswer JSONを全部コピーしてAへ送る
+
+### A側
+1. Bから受け取ったAnswer JSONを貼る
+2. 「A: Answer読み込み」
+3. 数秒待つ
+4. `接続済み（P2P）` になれば成功
+
+## 接続診断
+
+- `ICE gathering: complete`
+  - Offer/AnswerへICE候補が入り終わった状態
+- `ICE connection: checking`
+  - 接続経路を確認中
+- `ICE connection: connected` / `completed`
+  - ICE経路が成立
+- `DataChannel OPEN`
+  - 実際のP2Pデータ通信が開始
+- `ICE FAILED`
+  - 直接P2P経路を作れなかった可能性あり
+
+## 重要
+
+STUNを使っても、すべてのネットワークで直接P2P接続できるわけではありません。
+特に携帯キャリア網や厳しいNATではTURNリレーが必要になることがあります。
+
+この版は「アプリデータをサーバーへ保存しない」ことを優先しており、TURNサーバーは使っていません。
+
+また、ファイル転送は試作版なので100MB以下を推奨します。受信側はメモリ上でBlobを組み立ててダウンロードリンクを作ります。
